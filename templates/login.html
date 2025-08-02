@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Login</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="centered-page">
+    <div id="chat-container">
+        <h2>Login</h2>
+        {% if error %}
+            <div class="error-message">{{ error }}</div>
+        {% endif %}
+        <form method="POST">
+            <div style="margin-bottom: 12px;">
+                <input type="text" name="username" placeholder="Username" required style="width: 100%; padding: 8px;">
+            </div>
+            <div style="margin-bottom: 12px;">
+                <input type="password" name="password" placeholder="Password" required style="width: 100%; padding: 8px;">
+            </div>
+            <button type="submit" id="send-btn" style="width: 100%;">Login</button>
+        </form>
+        <p style="margin-top: 16px;">Don't have an account? <a href="{{ url_for('signup') }}">Sign up</a></p>
+    </div>
+</body>
+</html>

@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Chat</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+</head>
+<body>
+    <div id="profile-bar" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px;">
+        <div>
+            <span style="font-weight: bold;">👤 {{ current_username }}</span>
+        </div>
+        <div>
+            <a href="{{ url_for('logout') }}" id="logout-link" style="color: #2a7ae2; text-decoration: none; font-weight: bold;">Logout</a>
+        </div>
+    </div>
+    <div id="chat-container">
+        <h2>Chat</h2>
+        <div>
+            <label for="user-select">Start conversation with:</label>
+            <select id="user-select">
+                <option value="">Select user</option>
+                {% for user in users %}
+                    <option value="{{ user.id }}">{{ user.username }}</option>
+                {% endfor %}
+            </select>
+            <button id="start-btn" disabled>Start</button>
+        </div>
+        <div id="chat-with" style="margin: 10px 0; color: #555;"></div>
+        <div id="messages" style="min-height: 100px; color: #888; display: flex; flex-direction: column; justify-content: flex-end;">
+            <div id="placeholder">Select a user and start a conversation.</div>
+        </div>
+        <form id="message-form" style="display:none;">
+            <input id="message-input" autocomplete="off" placeholder="Type a message..." disabled />
+            <button id="send-btn" type="submit" disabled>Send</button>
+        </form>
+    </div>
+    <script>
+        const socket = io();
+        let currentRoom = null;
+        const currentUsername = "{{ current_username|e }}"; // Jinja2 variable
+
+        // Cache DOM elements
+        const userSelect = document.getElementById('user-select');
+        const startBtn = document.getElementById('start-btn');
+        const chatWith = document.getElementById('chat-with');
+        const messagesDiv = document.getElementById('messages');
+        const messageForm = document.getElementById('message-form');
+        const messageInput = document.getElementById('message-input');
+        const sendBtn = document.getElementById('send-btn');
+
+        // Helper: Enable/disable message input
+        function setMessageInputEnabled(enabled) {
+            messageInput.disabled = !enabled;
+            sendBtn.disabled = !enabled;
+        }
+
+        // Helper: Render messages
+        function renderMessages(history) {
+            messagesDiv.innerHTML = '';
+            if (history.length === 0) {
+                messagesDiv.innerHTML = '<div id="placeholder" style="color:#888;">No messages yet. Say hello!</div>';
+            } else {
+                history.forEach(msg => {
+                    const isMine = msg.sender === currentUsername;
+                    messagesDiv.innerHTML += `
+                        <div class="message${isMine ? ' mine' : ' theirs'}">
+                            <span class="sender">${msg.sender}:</span> ${msg.content}
+                        </div>`;
+                });
+            }
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        // Helper: Clear chat UI
+        function clearChatUI() {
+            messagesDiv.innerHTML = '<div id="placeholder">Select a user and start a conversation.</div>';
+            chatWith.textContent = '';
+            setMessageInputEnabled(false);
+            messageForm.style.display = 'none';
+        }
+
+        // Start conversation
+        startBtn.onclick = function() {
+            const userId = userSelect.value;
+            const userName = userSelect.options[userSelect.selectedIndex].text;
+            if (!userId) {
+                clearChatUI();
+                return;
+            }
+            messagesDiv.innerHTML = '<div style="color:#888;">Loading chat...</div>';
+            fetch(`/start_conversation/${userId}`)
+                .then(res => res.json())
+                .then(data => {
+                    currentRoom = data.room;
+                    chatWith.textContent = "Chatting with: " + userName;
+                    messageForm.style.display = '';
+                    setMessageInputEnabled(true);
+                    messageInput.focus();
+                    socket.emit('join', { room: currentRoom });
+                });
+        };
+
+        // Receive chat history
+        socket.on('chat_history', function(history) {
+            renderMessages(history);
+        });
+
+        // Receive new message
+        socket.on('receive_message', function(msg) {
+            const isMine = msg.sender === currentUsername;
+            if (document.getElementById('placeholder')) {
+                messagesDiv.innerHTML = '';
+            }
+            messagesDiv.innerHTML += `
+                <div class="message${isMine ? ' mine' : ' theirs'}">
+                    <span class="sender">${msg.sender}:</span> ${msg.content}
+                </div>`;
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        });
+
+        // Send message
+        messageForm.onsubmit = function(e) {
+            e.preventDefault();
+            if (messageInput.value && currentRoom) {
+                socket.emit('send_message', { room: currentRoom, content: messageInput.value });
+                messageInput.value = '';
+            }
+        };
+
+        // Allow Enter to send, Shift+Enter for newline
+        messageInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendBtn.click();
+            }
+        });
+
+        // Enable/disable Start button based on user selection
+        userSelect.addEventListener('change', function() {
+            startBtn.disabled = !userSelect.value;
+            if (!userSelect.value) {
+                clearChatUI();
+            }
+        });
+
+        // Initial state: disable input, clear chat, disable Start button
+        clearChatUI();
+        startBtn.disabled = true;
+        userSelect.focus();
+    </script>
+</body>
+</html>
