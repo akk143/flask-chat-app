@@ -1,22 +1,21 @@
 from flask import Flask, render_template, request, redirect, session, url_for
 from flask_socketio import SocketIO, emit, join_room
-from models import db, User, Message, Conversation
 from werkzeug.security import generate_password_hash, check_password_hash
+from models import db, User, Message, Conversation
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'secret!'
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///users.db'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
 db.init_app(app)
 socketio = SocketIO(app)
-
-with app.app_context():
-    db.create_all()
 
 @app.route('/', methods=['GET', 'POST'])
 def login():
     error = None
     if request.method == 'POST':
-        username = request.form['username']
+        username = request.form['username'].strip().lower()
         password = request.form['password']
         user = User.query.filter_by(username=username).first()
         if user and check_password_hash(user.password, password):
@@ -30,7 +29,7 @@ def login():
 def signup():
     error = None
     if request.method == 'POST':
-        username = request.form['username'].strip().capitalize()
+        username = request.form['username'].strip().lower()
         password = generate_password_hash(request.form['password'])
         if User.query.filter_by(username=username).first():
             error = "Username already exists."
@@ -61,24 +60,32 @@ def on_join(data):
 def handle_send_message(data):
     room = data['room']
     content = data['content']
-    sender_id = session['user_id']
-    msg = Message(content=content, sender_id=sender_id, conversation_id=room)
-    db.session.add(msg)
-    db.session.commit()
-    sender = User.query.get(sender_id)
-    emit('receive_message', {'sender': sender.username, 'content': content}, room=room)
+    sender_id = session.get('user_id')
+    if sender_id:
+        msg = Message(content=content, sender_id=sender_id, conversation_id=room)
+        db.session.add(msg)
+        db.session.commit()
+        sender = User.query.get(sender_id)
+        emit('receive_message', {'sender': sender.username, 'content': content}, room=room)
 
 @app.route('/start_conversation/<int:user_id>')
 def start_conversation(user_id):
-    current_user_id = session['user_id']
-    conv = Conversation.query.filter(Conversation.users.any(id=current_user_id),
-                                     Conversation.users.any(id=user_id)).first()
+    current_user_id = session.get('user_id')
+    if not current_user_id:
+        return {'error': 'Not logged in'}, 401
+
+    conv = Conversation.query.filter(
+        Conversation.users.any(id=current_user_id),
+        Conversation.users.any(id=user_id)
+    ).first()
+
     if not conv:
         conv = Conversation()
         conv.users.append(User.query.get(current_user_id))
         conv.users.append(User.query.get(user_id))
         db.session.add(conv)
         db.session.commit()
+
     return {'room': conv.id}
 
 @app.route('/logout')
@@ -88,7 +95,7 @@ def logout():
 
 @app.route('/delete_user/<username>')
 def delete_user(username):
-    user = User.query.filter_by(username=username.capitalize()).first()
+    user = User.query.filter_by(username=username.lower()).first()
     if user:
         db.session.delete(user)
         db.session.commit()
@@ -97,4 +104,3 @@ def delete_user(username):
 
 if __name__ == '__main__':
     socketio.run(app, debug=True, host='0.0.0.0', port=5001, allow_unsafe_werkzeug=True)
-
